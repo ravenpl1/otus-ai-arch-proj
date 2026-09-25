@@ -1,0 +1,50 @@
+---
+# Authelia Users Database
+# Passwords are hashed with Argon2id
+# Generate passwords with: docker run authelia/authelia authelia crypto hash generate argon2 --password 'yourpassword'
+
+users:
+  # Regular user — can only ask questions, sees only PL_revenue
+  ivan:
+    disabled: false
+    displayname: "Иван Иванов"
+    # password: "ivan123"
+    password: "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHRzYWx0$placeholder_generate_with_authelia"
+    email: ivan@rfsd-rag.local
+    groups:
+      - users
+
+  # Data Steward — can upload data + ask questions
+  maria:
+    disabled: false
+    displayname: "Мария Петрова"
+    # password: "maria123"
+    password: "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHRzYWx0$placeholder_generate_with_authelia"
+    email: maria@rfsd-rag.local
+    groups:
+      - data_stewards
+      - users
+
+  # Finance user — sees all financial fields
+  olga:
+    disabled: false
+    displayname: "Ольга Сидорова"
+    # password: "olga123"
+    password: "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHRzYWx0$placeholder_generate_with_authelia"
+    email: olga@rfsd-rag.local
+    groups:
+      - finance
+      - users
+
+  # Admin — full access
+  admin:
+    disabled: false
+    displayname: "Администратор Системы"
+    # password: "admin123"
+    password: "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHRzYWx0$placeholder_generate_with_authelia"
+    email: admin@rfsd-rag.local
+    groups:
+      - admin
+      - data_stewards
+      - finance
+      - users

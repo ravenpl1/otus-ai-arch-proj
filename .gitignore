@@ -23,6 +23,8 @@ wheels/
 share/python-wheels/
 *.egg-info/
 .installed.cfg
+.clineignore
+old/
 *.egg
 MANIFEST
 
@@ -216,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+# Разное
+.DS_Store

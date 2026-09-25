@@ -1,0 +1,28 @@
+name: otus-ai-arch-proj-auth
+
+services:
+  authelia:
+    image: authelia/authelia:4.37.0
+    container_name: authelia
+    ports:
+      - "9091:9091"
+    entrypoint: ["sh", "/entrypoint.sh"]
+    volumes:
+      # configuration.yml mounted read-only to /templates/
+      # entrypoint.sh copies it to /config/ and patches with hashes
+      - ./authelia/configuration.yml:/templates/configuration.yml:ro
+      - ./authelia/entrypoint.sh:/entrypoint.sh
+      - ./authelia/credentials.env:/credentials.env:ro
+      - ./authelia/config:/config
+    environment:
+      - TZ=Europe/Moscow
+      # Set to your server's external IP/domain
+      - AUTHELIA_URL=http://localhost:9091
+      - DEFAULT_REDIRECT_URL=http://localhost:8000
+      - BACKEND_HOST=localhost
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M

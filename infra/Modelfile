@@ -1,0 +1,4 @@
+FROM /root/models_import/Qwen3.5-9B-Q4_0.gguf
+
+# Количество ядер
+PARAMETER num_thread 4

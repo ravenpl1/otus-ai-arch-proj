@@ -1,0 +1,53 @@
+name: otus-ai-arch-proj-databases
+
+services:
+  # --- ВЕКТОРНАЯ СУБД QDRANT ---
+  qdrant:
+    image: qdrant/qdrant:v1.19.1 # Фиксируем стабильную версию
+    container_name: qdrant
+    ports:
+      - "6333:6333" # HTTP API (основной для Python-клиента)
+      - "6334:6334" # gRPC API
+    environment:
+      - QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_THREADS=1 # Минимизируем потоки CPU
+      - QDRANT__STORAGE__OPTIMIZERS__INDEXING_THRESHOLD_KB=20000 # Отключаем тяжелое авто-индексирование для MVP = 0, но если много надо поднять до 20000 (20 Мб) или более
+      - QDRANT__TELEMETRY_DISABLED=true
+    volumes:
+      # Персистентное хранение данных в локальную папку ./qdrant_storage
+      - ./qdrant_storage:/qdrant/storage
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M # Ограничение сверху, чтобы контейнер не разрастался
+
+  # --- ГРАФОВАЯ СУБД NEO4J ---
+  neo4j:
+    image: neo4j:5.26.30 # Используем стабильную community-версию LTS
+    container_name: neo4j
+    ports:
+      - "7474:7474" # HTTP (Для доступа к браузерной админке Neo4j Browser)
+      - "7687:7687" # Bolt (Протокол для подключения Python-драйвера)
+    environment:
+      - NEO4J_AUTH=neo4j/password123 # Логин и пароль (измените при желании)
+      # --- Жесткое ограничение памяти (минимальный профиль) ---
+      - NEO4J_server_memory_heap_initial__size=256m
+      - NEO4J_server_memory_heap_max__size=512m
+      - NEO4J_server_memory_pagecache_size=256m
+      # Снижаме уровень логирования
+      - NEO4J_server_jvm_additional=-Dneo4j.logging.level=WARN
+      # Отключаем дефолтные тяжелые плагины, если они не нужны для MVP
+      - NEO4J_dbms_security_auth__enabled=true
+    volumes:
+      # Маппинг всех важных папок в локальный каталог проекта для персистентности
+      - ./neo4j_data:/data
+      - ./neo4j_logs:/logs
+      - ./neo4j_import:/import
+      - ./neo4j_plugins:/plugins
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 1G # Лимит RAM для контейнера Neo4j

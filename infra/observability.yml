@@ -1,0 +1,123 @@
+name: otus-ai-arch-proj-observability
+
+services:
+  # 1. OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.160.0 # Стабильная версия на текущий момент
+    container_name: otel-collector
+    environment:
+      OTEL_CONFIG: |
+        receivers:
+          otlp:
+            protocols:
+              grpc:
+                endpoint: 0.0.0.0:4317
+              http:
+                endpoint: 0.0.0.0:4318
+        processors:
+          batch:
+        exporters:
+          prometheus:
+            endpoint: "0.0.0.0:8889"
+            namespace: "otel"
+          otlp/jaeger:
+            endpoint: "jaeger:4317"
+            tls:
+              insecure: true
+        service:
+          pipelines:
+            traces:
+              receivers: [otlp]
+              processors: [batch]
+              exporters: [otlp/jaeger]
+            metrics:
+              receivers: [otlp]
+              processors: [batch]
+              exporters: [prometheus]
+    command: ["--config=env:OTEL_CONFIG"]
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+
+  # 2. Prometheus
+  prometheus:
+    image: prom/prometheus:v3.13.3 # Стабильная на текущий момент v3.13.3 
+    container_name: prometheus
+    user: "root" # Защита от ошибок прав (permission denied) в папке prometheus_data
+    # Создаем конфиг Prometheus "на лету" и указываем путь для персистентных данных
+    entrypoint:
+      - sh
+      - -c
+      - |
+        cat <<EOF > /etc/prometheus/prometheus.yaml
+        global:
+          scrape_interval: 30s
+        scrape_configs:
+          - job_name: 'otel-collector'
+            static_configs:
+              - targets: ['otel-collector:8889']
+        EOF
+        /bin/prometheus --config.file=/etc/prometheus/prometheus.yaml --storage.tsdb.path=/prometheus
+    volumes:
+      # Локальная папка на хосте для персистентных метрик (создастся сама)
+      - ./prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+
+  # 3. Jaeger (Трейсы)
+  jaeger:
+    image: jaegertracing/jaeger:2.18.0 # 2.14.0 docker pull jaegertracing/all-in-one:1.76.0 docker pull jaegertracing/jaeger:2.18.0
+    container_name: jaeger
+    user: "root"
+    command: ["--config=env:JAEGER_V2_CONFIG"]
+    environment:
+      JAEGER_V2_CONFIG: |
+        receivers:
+          otlp:
+            protocols:
+              grpc:
+                endpoint: 0.0.0.0:4317
+        exporters:
+          jaeger_storage_exporter: # ИСПРАВЛЕНО: имя экспортера изменено на валидное
+            trace_storage: badger-backend
+        extensions:
+          jaeger_query:
+            storage:
+              traces: badger-backend # ИСПРАВЛЕНО: корректный синтаксис привязки хранилища к UI
+          jaeger_storage:
+            backends:
+              badger-backend:
+                badger:
+                  directories:
+                    keys: /badger-data/keys
+                    values: /badger-data/values
+                  ephemeral: false
+                  ttl:
+                    spans: 72h
+        service:
+          extensions: [jaeger_storage, jaeger_query]
+          pipelines:
+            traces:
+              receivers: [otlp]
+              processors: []
+              exporters: [jaeger_storage_exporter] # ИСПРАВЛЕНО: имя экспортера изменено
+    ports:
+      - "16686:16686" # Web UI
+    volumes:
+      - ./jaeger-data:/badger-data
+
+  # 4. Grafana
+  grafana:
+    image: grafana/grafana:latest # 13.2.1
+    container_name: grafana
+    user: "root"
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_LOG_LEVEL=warn
+    volumes:
+      # Локальная папка на хосте для персистентных дашбордов и настроек
+      - ./grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus

@@ -1,0 +1,71 @@
+name: otus-ai-arch-proj-ai-models
+
+services:
+  ollama:
+    image: ollama/ollama:0.34.0
+    container_name: ollama-cpu-qwen35-9b
+    cpuset: "0-3" # Использовать только первые 4 ядра (0, 1, 2, 3) из 6 доступных
+    deploy:
+      resources:
+        limits:
+          cpus: '4'         # Разрешаем использовать строго ваши 4 ядра
+          memory: 24g       # Жесткий лимит ОЗУ (хватает под модель 16ГБ + 16k кэш с запасом)
+    environment:
+      - OLLAMA_NUM_THREADS=4 # синхронизация с выделенным ядрами иначе будет выделять все 6 ядер и будет все тормозить
+      # --- НАСТРОЙКИ ПАМЯТИ И КЭША ---
+      - OLLAMA_CONTEXT_LENGTH=16384 # размер контекста
+      - OLLAMA_KEEP_ALIVE=-1    # Модель ВСЕГДА загружена в ОЗУ, не выгружается автоматически
+      - OLLAMA_NUM_PARALLEL=1   # Строго 1 слот. Кэш гарантированно очищается между запросами
+      - OLLAMA_FLASH_ATTENTION=1 # Включаем Flash Attention (обязательно для квантования кэша)
+      # - OLLAMA_KV_CACHE_TYPE=q8_0 # Выключаем т.к. нагружает CPU каждый раз переводя кэш в Q8
+      - OLLAMA_MULTIUSER_CACHE=1 # Активация повторного кэширования
+    volumes:
+      # Папка для постоянного хранения данных Ollama
+      - ./ollama_storage:/root/.ollama
+      # Пробрасываем текущую папку ПК, где лежат Modelfile и .gguf, внутрь контейнера
+      # Слева: путь на вашем ПК. Справа: папка внутри контейнера
+      - /media/user/disk-data/models/Qwen3.5-9B-Q4_0:/root/models_import
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        ollama serve & 
+        OLLAMA_PID=$$!
+        
+        echo "=== 1. Ожидаем запуск Ollama ==="
+        until ollama list > /dev/null 2>&1; do sleep 2; done
+        
+        echo "=== 2. Проверяем модель ==="
+        if ! ollama list | grep -q "qwen3.5-9b"; then
+          echo "=== 3. Создаем модель ==="
+          ollama create qwen3.5-9b -f /root/models_import/Modelfile
+          
+          echo "=== 4. Очищаем лишние blob'ы ==="
+          MANIFEST="/root/.ollama/models/manifests/registry.ollama.ai/library/qwen3.5-9b/latest"
+          
+          if [ -f "$$MANIFEST" ]; then
+            USED_HASHES=$$(grep -o 'sha256:[a-f0-9]\{64\}' "$$MANIFEST" | tr ':' '-')
+            echo "Активные blob'ы: $$USED_HASHES"
+            
+            for blob in /root/.ollama/models/blobs/sha256-*; do
+              [ -f "$$blob" ] || continue
+              blob_name=$$(basename "$$blob")
+              if ! echo "$$USED_HASHES" | grep -qF "$$blob_name"; then
+                echo "Удаляем: $$blob_name ($$(du -h "$$blob" | cut -f1))"
+                rm -f "$$blob"
+              else
+                echo "Сохраняем: $$blob_name"
+              fi
+            done
+            echo "=== Очистка завершена ==="
+          else
+            echo "=== Манифест не найден: $$MANIFEST ==="
+          fi
+        else
+          echo "=== Модель уже импортирована ==="
+        fi
+        
+        echo "=== ГОТОВО! ==="
+        wait $$OLLAMA_PID
